@@ -18,7 +18,7 @@ def main():
 
     shell_and_symbol = ";" if system == "Windows" else "&&"
 
-    cmd = " ".join([run_docker_cmd, "\"", compile_cmd, "&&" , clean_cmd, "\""])
+    cmd = " ".join([run_docker_cmd, "\"", compile_cmd, shell_and_symbol , clean_cmd, "\""])
 
     print(f"Running command:\n{cmd}")
 
