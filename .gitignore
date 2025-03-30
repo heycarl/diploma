@@ -316,3 +316,5 @@ config.sh
 # drawio temp & backup files
 *.bkp
 *.dtmp
+
+.DS_Store
