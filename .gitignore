@@ -312,6 +312,7 @@ config.sh
 *.vsd
 *.tar
 *.gz
+!src/annexes/**/*.docx
 
 # drawio temp & backup files
 *.bkp
