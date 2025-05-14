@@ -319,3 +319,4 @@ config.sh
 *.dtmp
 
 .DS_Store
+diploma.code-workspace
