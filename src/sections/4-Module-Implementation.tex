@@ -1,10 +1,8 @@
 \section{Разработка программных модулей}
-\subsubsection{Развёртывание \textit{Kubernetes} кластера через \textit{Ansible} и \textit{GitLab CI/CD}}
-
-Процесс развёртывания  кластера организован с помощью инфраструктурного кода, исполняемого в пайплайне \textit{GitLab CI/CD}. Ниже перечислены основные шаги, выполняемые в рамках автоматизации:
+\subsubsection{Развёртывание \textit{Kubernetes} кластера через \textit{Ansible} и \textit{GitLab CI/CD}.} Процесс развёртывания  кластера организован с помощью инфраструктурного кода, исполняемого в пайплайне \textit{GitLab CI/CD}. Ниже перечислены основные шаги, выполняемые в рамках автоматизации:
 
 \begin{itemize}
-  \item инициализация\textit{CI/CD}пайплайна с тремя стадиями: \lstinline{lint}, \lstinline{test} и \lstinline{deploy};
+  \item инициализация \textit{CI/CD}пайплайна с тремя стадиями: \lstinline{lint}, \lstinline{test} и \lstinline{deploy};
   \item подготовка \textit{bootstrap}-узла вручную с использованием пароля и плейбука \lstinline{bootstrap.yaml};
   \item применение базовой конфигурации через плейбук \lstinline{base-node.yaml}, создающий пользователей и настраивающий окружение;
   \item установка и конфигурация Kubernetes с помощью плейбука \lstinline{k3s.yaml}, разделённого по ролям на master- и agent-узлы;
@@ -12,9 +10,7 @@
   \item проверка и применение изменений происходит в пайплайне \textit{GitLab} при помощи \textit{dry-run} и ручного деплоя.
 \end{itemize}
 
-\subsubsection{Инициализация\textit{CI/CD}-пайплайна}
-
-В \lstinline{.gitlab-ci.yml} определены три стадии пайплайна:
+\subsubsection{Инициализация\textit{CI/CD}-пайплайна.} В \lstinline{.gitlab-ci.yml} определены три стадии пайплайна:
 
 \begin{lstlisting}
 stages:
@@ -25,9 +21,7 @@ stages:
 
 На стадии \lstinline{lint} выполняется статическая проверка \textit{playbook}'ов с помощью \lstinline{ansible-lint}. На стадии \lstinline{test} все плейбуки запускаются в режиме проверки (\lstinline{--check --diff}), без внесения изменений. На стадии \lstinline{deploy} \textit{playbook}'и применяются на удалённых узлах.
 
-\subsubsection{Подготовка bootstrap-узла}
-
-Этот шаг выполняется вручную, с помощью команды в пайплайне:
+\subsubsection{Подготовка bootstrap-узла.} Этот шаг выполняется вручную, с помощью команды в пайплайне:
 
 \begin{lstlisting}
 ansible-playbook playbooks/bootstrap.yaml -i "${BOOTSTRAP_HOST}," \
@@ -37,9 +31,7 @@ ansible-playbook playbooks/bootstrap.yaml -i "${BOOTSTRAP_HOST}," \
 
 На этом этапе развёртывается роль \lstinline{bootstrap}, которая выполняет начальную настройку: доступ по \textit{SSH}, установка базовых зависимостей и подготовка к следующему этапу.
 
-\subsubsection{Применение базовой конфигурации}
-
-Следующий шаг -- конфигурация базового окружения на всех нодах с помощью:
+\subsubsection{Применение базовой конфигурации.} Следующий шаг -- конфигурация базового окружения на всех нодах с помощью:
 
 \begin{lstlisting}
 ansible-playbook playbooks/base-node.yaml -l all
@@ -47,9 +39,7 @@ ansible-playbook playbooks/base-node.yaml -l all
 
 Этот плейбук настраивает пользователей, \textit{SSH}-ключи, группы, \textit{sudo}-доступ и другие параметры для дальнейшего управления нодами через Ansible.
 
-\subsubsection{Установка и настройка \textit{Kubernetes}}
-
-Установка и настройка кластерного программного обеспечения осуществляется с помощью плейбука \lstinline{k3s.yaml}. Внутри него используются следующие роли:
+\subsubsection{Установка и настройка \textit{Kubernetes}.} Установка и настройка кластерного программного обеспечения осуществляется с помощью плейбука \lstinline{k3s.yaml}. Внутри него используются следующие роли:
 
 \begin{itemize}
   \item \lstinline{k3s_server} -- применяется к мастер-нодам;
@@ -116,9 +106,7 @@ ansible-playbook playbooks/k3s.yaml -l k8s_agents
 
 Конфигурация передаётся через переменные, включая версию \textit{k3s}, сетевые параметры и \textit{TLS}-настройки.
 
-\subsubsection{Управление секретами и переменными}
-
-Все чувствительные данные, такие как пароли, ключи \textit{SSH} и токены, передаются через переменные окружения в \textit{GitLab} и \textit{Ansible Vault}. В пайплайне используется следующая логика декодирования:
+\subsubsection{Управление секретами и переменными.} Все чувствительные данные, такие как пароли, ключи \textit{SSH} и токены, передаются через переменные окружения в \textit{GitLab} и \textit{Ansible Vault}. В пайплайне используется следующая логика декодирования:
 
 \begin{lstlisting}
 echo "${SSH_PRIVATE_KEY}" | base64 -d > ~/.ssh/id_rsa
@@ -127,9 +115,7 @@ echo "${VAULT_TOKEN}" > .vault-password
 
 Vault используется для расшифровки зашифрованных данных в плейбуках и переменных, что позволяет безопасно хранить ключи и пароли в репозитории.
 
-\subsubsection{Проверка и развёртывание изменений}
-
-На стадии \lstinline{test} выполняется \textit{dry-run} всех плейбуков с помощью:
+\subsubsection{Проверка и развёртывание изменений.} На стадии \lstinline{test} выполняется \textit{dry-run} всех плейбуков с помощью:
 
 \begin{lstlisting}
 ansible-playbook --check --diff playbooks/${PLAYBOOK} -l ${LIMIT}
@@ -166,12 +152,12 @@ ansible-playbook playbooks/${PLAYBOOK} -l ${LIMIT}
 
 Шаблоны в \textit{Helm} предоставляют несколько ключевых возможностей:
 
-\begin{itemize}
+\begin{enumerate}
     \item \textit{Переменные и параметры}. Шаблоны могут включать переменные, которые определяются в файле \textit{values.yaml} или передаются во время установки \textit{Helm}-чарта. Это позволяет создавать гибкие конфигурации, которые можно адаптировать под разные окружения или потребности, например, изменять количество реплик, название контейнера или используемые порты.
     \item \textit{Условные операторы}. Шаблоны могут включать условные конструкции (\textit{if}, \textit{else}), которые позволяют в зависимости от значений переменных менять поведение шаблона. Например, можно условно подключать дополнительные сервисы или изменять параметры конфигурации в зависимости от среды (разработка, тестирование, продакшн).
     \item \textit{Циклы}. Шаблоны \textit{Helm} поддерживают циклические конструкции (\textit{range}), что позволяет автоматически генерировать одинаковые блоки конфигурации, например, для нескольких реплик подов или нескольких сервисов.
     \item \textit{Функции}. В шаблонах \textit{Helm} можно использовать встроенные функции, такие как \textit{lookup}, \textit{toYaml}, \textit{toJson}, \textit{default}, которые позволяют манипулировать данными и генерировать более сложные конфигурации.
-\end{itemize}
+\end{enumerate}
 
 Шаблоны позволяют эффективно управлять различными аспектами развертываемого приложения и легко адаптировать его под изменяющиеся требования, что делает \textit{Helm} мощным инструментом для работы с \textit{Kubernetes}.
 
@@ -183,12 +169,9 @@ ansible-playbook playbooks/${PLAYBOOK} -l ${LIMIT}
 
 Таким образом, \textit{Helm} позволяет повысить гибкость, управляемость и масштабируемость процессов деплоя в \textit{Kubernetes}, снижая количество ошибок и ускоряя разработку.
 
+Чарт для приложения \textit{mutex-app} предоставляет гибкую настройку развертывания и конфигурации, которая определяется через файл \textit{values.yaml}. Этот файл описывает различные параметры, которые могут быть настроены для управления поведением развертывания, таких как количество реплик, конфигурация контейнеров, настройка сервисов и хранилищ, а также другие параметры, важные для обеспечения корректной работы приложения:
 
-\subsection{Применение \textit{Helm}-чарта для \textit{mutex-app}}
-
-Чарт для приложения \textit{mutex-app} предоставляет гибкую настройку развертывания и конфигурации, которая определяется через файл \textit{values.yaml}. Этот файл описывает различные параметры, которые могут быть настроены для управления поведением развертывания, таких как количество реплик, конфигурация контейнеров, настройка сервисов и хранилищ, а также другие параметры, важные для обеспечения корректной работы приложения.
-
-\begin{itemize}
+\begin{enumerate}
     \item \textit{Количество реплик}. Чарт позволяет настраивать количество реплик приложения, что управляется через параметр \textit{replicaCount}. Это значение определяет, сколько экземпляров приложения будет развернуто в \textit{Kubernetes}, что важно для масштабирования приложения и обеспечения его высокой доступности.
 
     \item \textit{Настройка развертывания}. В разделе \textit{deployment} можно настроить включение или отключение развертывания (\textit{enabled}) и параметры контейнеров, таких как имя, образ, переменные окружения и прочее. Например, чарт может включать настройку для \textit{initContainers}, которые выполняются до основных контейнеров приложения, для инициализации необходимых ресурсов.
@@ -199,7 +182,7 @@ ansible-playbook playbooks/${PLAYBOOK} -l ${LIMIT}
 
     \item \textit{Конфигурация \textit{ConfigMap}}. Чарт позволяет использовать \textit{ConfigMap} для хранения конфигурационных файлов, таких как \textit{uwsgi.ini}, которые могут быть монтированы в контейнеры приложения. Это дает возможность изменять настройки приложения без необходимости перезапуска контейнеров.
 
-    \item \textit{Ingress}. Через параметр \textit{ingress} можно настроить доступ к приложению через HTTP(S) с использованием \textit{Ingress Controller}. В частности, можно указать \textit{className} для использования конкретного класса контроллера и настраивать хосты и пути для маршрутизации трафика.
+    \item \textit{Ingress}. Через параметр \textit{ingress} можно настроить доступ к приложению через \textit{HTTP(S)} с использованием \textit{Ingress Controller}. В частности, можно указать \textit{className} для использования конкретного класса контроллера и настраивать хосты и пути для маршрутизации трафика.
 
     \item \textit{Ресурсы и лимиты}. В разделе \textit{resources} можно определить лимиты и запросы на ресурсы, такие как \textit{CPU} и \textit{memory}. Это позволяет точно настраивать потребление ресурсов для контейнеров приложения, предотвращая их перегрузку или недоиспользование.
 
@@ -209,7 +192,7 @@ ansible-playbook playbooks/${PLAYBOOK} -l ${LIMIT}
 
     \item \textit{Поддержка дополнительных томов}. Для приложений, которые требуют использования дополнительных томов, чарт позволяет настроить такие тома через параметр \textit{volumes}, предоставляя возможность монтировать внешние ресурсы, такие как секреты или файлы конфигурации.
 
-\end{itemize}
+\end{enumerate}
 
 Таким образом, чарт для \textit{mutex-app} предоставляет полную гибкость в настройке развертывания и параметров приложения. Возможности, которые предоставляет файл \textit{values.yaml}, позволяют легко адаптировать приложение под различные условия работы, включая настройку контейнеров, сетевых сервисов, хранилищ и масштабирование.
 
@@ -280,14 +263,14 @@ helm upgrade --install authentik authentik/authentik \
 
 \subsection{Эксплуатация модуля \textit{cert-manager}}
 
-Модуль \textit{cert-manager} предназначен для автоматического управления\textit{TLS}-сертификатами в кластере \textit{Kubernetes}. Он используется для получения, обновления и продления сертификатов от внешнего поставщика, в данном случае -- \textit{Let's Encrypt}, через протокол \textit{ACME}.
+Модуль \textit{cert-manager} предназначен для автоматического управления \textit{TLS}-сертификатами в кластере \textit{Kubernetes}. Он используется для получения, обновления и продления сертификатов от внешнего поставщика, в данном случае -- \textit{Let's Encrypt}, через протокол \textit{ACME}.
 
 \subsubsection{Установка модуля \textit{cert-manager}.} Установка \textit{cert-manager} выполняется с помощью менеджера пакетов \textit{Helm} и включает следующие шаги:
 
 \begin{itemize}
     \item добавить официальный репозиторий \textit{Jetstack};
     \item обновить локальный индекс пакетов;
-    \item установить \textit{cert-manager} в namespace \textit{cert-manager} с созданием пространства имен и установкой пользовательских ресурсов (\textit{CRD}).
+    \item установить \textit{cert-manager} в \textit{namespace cert-manager} с созданием пространства имен и установкой пользовательских ресурсов (\textit{CRD}).
 \end{itemize}
 
 Команды для выполнения этих шагов приведены ниже:
@@ -469,11 +452,39 @@ $> helm upgrade --install vaultwarden vaultwarden/vaultwarden -f infra/k8s/vault
     \item объявление \textit{L2Advertisement}, ссылающегося на созданный пул.
 \end{itemize}
 
+На рисунке~\ref{fig:metallb-architecture} представлена схема архитектуры и взаимодействия компонентов \textit{MetalLB} в режиме \textit{Layer 2}, иллюстрирующая основные сущности и процесс назначения IP-адресов для сервисов с типом \textit{LoadBalancer}.
 
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.8\textwidth]{\commonSecPathPrefix/../img/metallb-architecture.png}
+    \caption{Архитектура и основные компоненты \textit{MetalLB} в режиме \textit{L2 LoadBalancer}}
+    \label{fig:metallb-architecture}
+\end{figure}
 
 \subsection{Установка и настройка модуля мониторинга}
 
-Модуль мониторинга построен на базе следующих компонентов: \textit{VictoriaMetrics}, \textit{Grafana}, \textit{Loki}, \textit{Promtail}, \textit{Alertmanager}. Все они развёртываются в пространстве имён \textit{monitoring} с использованием инструмента \textit{FluxCD}.
+Модуль мониторинга обеспечивает комплексный сбор, хранение, визуализацию и оповещение по метрикам и логам, что позволяет эффективно контролировать состояние и производительность кластера \textit{Kubernetes} и развернутых в нём приложений. В основе решения лежит интеграция нескольких специализированных компонентов, каждый из которых отвечает за определённую задачу мониторинга.
+
+В состав модуля входят следующие компоненты:
+
+\begin{itemize}
+    \item \textit{VictoriaMetrics} -— масштабируемая система сбора и хранения метрик с поддержкой \textit{Prometheus API};
+    \item \textit{Grafana} -— платформа для визуализации метрик и построения дашбордов;
+    \item \textit{Loki} -— система централизованного хранения и поиска логов;
+    \item \textit{Promtail} -— агент для сбора логов и передачи их в \textit{Loki};
+    \item \textit{Alertmanager} -— компонент для управления оповещениями и их маршрутизации.
+\end{itemize}
+
+Все компоненты развёртываются в отдельном пространстве имён \textit{monitoring} с помощью инструмента \textit{FluxCD}, что обеспечивает автоматизацию, согласованность и лёгкость обновления конфигураций.
+
+На рисунке~\ref{fig:monitoring-architecture} представлена архитектурная схема модуля мониторинга, иллюстрирующая взаимодействие компонентов, потоки данных метрик и логов, а также механизм оповещений.
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.9\linewidth]{\commonSecPathPrefix/../img/monitoring-architecture.png}
+    \caption{Архитектура модуля мониторинга на базе \textit{VictoriaMetrics, Grafana, Loki, Promtail} и \textit{Alertmanager}}
+    \label{fig:monitoring-architecture}
+\end{figure}
 
 \subsubsection{Добавление репозиториев \textit{Helm}.} Добавляются два источника \textit{Helm}-чартов:
 
@@ -486,12 +497,21 @@ $> helm upgrade --install vaultwarden vaultwarden/vaultwarden -f infra/k8s/vault
 
 \begin{itemize}
     \item отключены компоненты \textit{kubeEtcd}, \textit{kubeScheduler}, \textit{kubeControllerManager};
-    \item включён компонент \textit{vmagent} с лимитом ресурсов: \textit{2560Mi} памяти и \textit{256m} CPU;
+    \item включён компонент \textit{vmagent} с лимитом ресурсов: \textit{2560Mi} памяти и \textit{256m} \textit{CPU};
     \item компонент \textit{vmsingle} настроен с хранилищем объёмом \textit{4Gi}, периодом хранения данных в \textit{2 недели} и ограничением памяти \textit{700Mi};
-    \item компонент \textit{Grafana} развёрнут с авторизацией через \textit{GitHub OAuth}, интерфейс доступен по адресу \textit{https://olymp.bsuir.by/i/grafana}, выставлены лимиты ресурсов: до \textit{400Mi} памяти и \textit{100m} CPU;
+    \item компонент \textit{Grafana} развёрнут с авторизацией через \textit{GitHub OAuth}, интерфейс доступен по адресу \textit{https://olymp.bsuir.by/i/grafana}, выставлены лимиты ресурсов: до \textit{400Mi} памяти и \textit{100m} \textit{CPU};
     \item добавлен сбор собственных метрик \textit{Grafana} с помощью \textit{vmScrape};
     \item загружаются два дашборда: \textit{NGINX} и \textit{Cloud Native PG} с помощью ресурсов \textit{ConfigMap}.
 \end{itemize}
+
+На рисунке~\ref{fig:vmstack-architecture} показана архитектура стека \textit{VictoriaMetrics}, отражающая взаимодействие компонентов и их основные ресурсы.
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.9\linewidth]{\commonSecPathPrefix/../img/vm-arch.png}
+    \caption{Архитектура стека \textit{VictoriaMetrics}}
+    \label{fig:vmstack-architecture}
+\end{figure}
 
 \subsubsection{Настройка \textit{Alertmanager}.} Конфигурация \textit{Alertmanager} включает шаблоны для уведомлений в \textit{Telegram}, использующие форматирование и эмодзи. Уведомления включают ссылку на интерфейс \textit{Grafana}.
 
@@ -499,10 +519,10 @@ $> helm upgrade --install vaultwarden vaultwarden/vaultwarden -f infra/k8s/vault
 
 \begin{itemize}
     \item \textit{Telegram} -- для событий уровня \textit{info} и \textit{error};
-    \item \textit{GitLab} -- для отображения статуса CI/CD-процесса.
+    \item \textit{GitLab} -- для отображения статуса \textit{CI/CD}-процесса.
 \end{itemize}
 
-\subsubsection{Развёртывание \textit{Loki}.} Компонент \textit{Loki} развёрнут с использованием чарта \textit{loki} из официального репозитория \textit{Grafana}. Хранение логов настроено через S3-совместимое хранилище, размещённое по адресу \textit{fksis-storage-01.bsuir.by}. Указан регион \textit{eu-west-1}, включена поддержка компакции и удаления старых данных с периодом хранения \textit{672 часа}.
+\subsubsection{Развёртывание \textit{Loki}.} Компонент \textit{Loki} развёрнут с использованием чарта \textit{loki} из официального репозитория \textit{Grafana}. Хранение логов настроено через \textit{S3}-совместимое хранилище, размещённое по адресу \textit{fksis-storage-01.bsuir.by}. Указан регион \textit{eu-west-1}, включена поддержка компакции и удаления старых данных с периодом хранения \textit{672 часа}.
 
 \subsubsection{Развёртывание \textit{Promtail}.} Компонент \textit{Promtail} используется для сбора логов с узлов кластера и их отправки в \textit{Loki}. Подключение осуществляется через сервис \textit{loki-gateway}.
 
