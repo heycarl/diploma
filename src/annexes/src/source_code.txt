@@ -1,0 +1,1542 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ingress-nginx
+  labels:
+    toolkit.fluxcd.io/tenant: sre
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: ingress-nginx
+  namespace: ingress-nginx
+spec:
+  interval: 24h
+  url: https://kubernetes.github.io/ingress-nginx
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: ingress-nginx
+  namespace: ingress-nginx
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: ingress-nginx
+      version: "*"
+      sourceRef:
+        kind: HelmRepository
+        name: ingress-nginx
+        namespace: ingress-nginx
+      interval: 12h
+  values:
+    controller:
+      service:
+        externalIPs:
+          - 172.16.82.26
+          - 172.16.82.106
+      podAnnotations:
+        prometheus.io/scrape: "true" 
+        prometheus.io/port: "10254" 
+      metrics:
+        enabled: true
+      priorityClassName: infra-critical
+      config:
+        log-format-escape-json: "true"
+        log-format-upstream: '{"timestamp": "$time_iso8601", "requestID": "$req_id", "proxyUpstreamName":
+          "$proxy_upstream_name","upstreamStatus":
+          "$upstream_status", "upstreamAddr": "$upstream_addr","httpRequest":{"requestMethod":
+          "$request_method", "requestUrl": "$host$request_uri", "status": $status,"requestSize":
+          "$request_length", "responseSize": "$upstream_response_length", "userAgent": "$http_user_agent",
+          "remoteIp": "$remote_addr", "referer": "$http_referer", "latency": "$upstream_response_time s",
+          "protocol":"$server_protocol"}}'
+        enable-real-ip: true
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: ingress-nginx
+  namespace: ingress-nginx
+spec:
+  endpoints:
+    - port: metrics
+  namespaceSelector:
+    matchNames:
+      - ingress-nginx
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ingress-nginx
+      app.kubernetes.io/component: controller
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/component: grafana
+    grafana_datasource: "1"
+  name: loki-datasource
+  namespace: monitoring
+data:
+  loki-datasource.yaml: |-
+    apiVersion: 1
+    datasources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: "http://loki-gateway"
+      version: 1
+      jsonData:
+        {}
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  interval: 24h
+  url: https://grafana.github.io/helm-charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: loki
+  namespace: monitoring
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: loki
+      version: "*"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+        namespace: monitoring
+      interval: 5m
+  valuesFrom:
+    - kind: Secret
+      name: minio-credentials
+      valuesKey: accessKeyId
+      targetPath: loki.storage.s3.accessKeyId
+    - kind: Secret
+      name: minio-credentials
+      valuesKey: secretAccessKey
+      targetPath: loki.storage.s3.secretAccessKey
+  values:
+    loki:
+      auth_enabled: false
+      commonConfig:
+        replication_factor: 1
+      schemaConfig:
+        configs:
+          - from: "2024-04-01"
+            store: tsdb
+            object_store: s3
+            schema: v13
+            index:
+              prefix: loki_index_
+              period: 24h
+      storage_config:
+        aws:
+          region: eu-west-1
+          bucketnames: aws-loki-chunk
+          s3forcepathstyle: true
+      pattern_ingester:
+          enabled: true
+      limits_config:
+        allow_structured_metadata: true
+        volume_enabled: true
+        retention_period: 672h
+      storage:
+        type: s3
+        bucketNames:
+            chunks: aws-loki-chunk
+            ruler: aws-loki-ruler
+            admin: aws-loki-admin
+        s3:
+          endpoint: http://fksis-storage-01.bsuir.by:9091
+          region: eu-west-1
+          s3ForcePathStyle: true
+          insecure: true
+          http_config: {}
+      compactor:
+        compaction_interval: 10m
+        retention_enabled: true
+        retention_delete_delay: 2h
+        retention_delete_worker_count: 150
+        delete_request_store: s3
+    chunksCache:
+      allocatedMemory: 250
+    minio:
+      enabled: false
+    deploymentMode: SimpleScalable
+    backend:
+      replicas: 1
+      persistence:
+        size: 250Mi
+    read:
+      replicas: 1
+    write:
+      replicas: 1
+      persistence:
+        size: 250Mi
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: metallb-system
+  labels:
+    toolkit.fluxcd.io/tenant: sre
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: metallb
+  namespace: metallb-system
+spec:
+  interval: 24h
+  url: https://metallb.github.io/metallb
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: metallb
+  namespace: metallb-system
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: metallb
+      version: "*"
+      sourceRef:
+        kind: HelmRepository
+        name: metallb
+        namespace: metallb-system
+      interval: 12h
+  values:
+    crds:
+      validationFailurePolicy: Ignore
+    speaker:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 100Mi
+        limits:
+          cpu: 100m
+          memory: 250Mi
+---
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: default-pool
+  namespace: metallb-system
+spec:
+   addresses:
+   - 172.16.82.106/32 # fcsan-vip-1
+   - 172.16.82.26/32  # fksis-compute-01
+  #  - 172.16.82.20/32  # acm
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: default-pool-advertisement
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+  - default-pool
+---
+apiVersion: notification.toolkit.fluxcd.io/v1beta3
+kind: Alert
+metadata:
+  name: gitlab-status
+  namespace: flux-system
+spec:
+  providerRef:
+    name: gitlab-status
+  eventSources:
+    - kind: HelmRepository
+      name: '*'
+    - kind: HelmRelease
+      name: '*'
+    - kind: GitRepository
+      name: '*'
+    - kind: Kustomization
+      name: '*'
+---
+apiVersion: notification.toolkit.fluxcd.io/v1beta3
+kind: Provider
+metadata:
+  name: telegram
+  namespace: flux-system
+spec:
+  type: telegram
+  address: https://api.telegram.org
+  channel: "-masked_one"
+  secretRef:
+    name: telegram-token
+---
+apiVersion: notification.toolkit.fluxcd.io/v1beta3
+kind: Provider
+metadata:
+  name: gitlab-status
+  namespace: flux-system
+spec:
+  type: gitlab
+  address: https://gitlab.com/mutualex/bsuir/k8s
+  secretRef:
+    name: gitlab-token
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    toolkit.fluxcd.io/tenant: sre
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: vm
+  namespace: monitoring
+spec:
+  interval: 24h
+  url: https://victoriametrics.github.io/helm-charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: vmks
+  namespace: monitoring
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: victoria-metrics-k8s-stack
+      version: "*"
+      sourceRef:
+        kind: HelmRepository
+        name: vm
+        namespace: monitoring
+      interval: 12h
+  values:
+    kubeEtcd:
+      enabled: false
+    kubeScheduler:
+      enabled: false
+    kubeControllerManager:
+      enabled: false
+    vmagent:
+      enabled: true
+      spec:
+        resources:
+          limits:
+            cpu: 256m
+            memory: 2560Mi
+          requests:
+            cpu: 128m
+            memory: 128Mi
+    vmsingle:
+      spec:
+        extraArgs:
+          memory.allowedBytes: 300MiB
+        retentionPeriod: 2w
+        resources:
+          limits:
+            cpu: 2048m
+            memory: 700Mi
+          requests:
+            cpu: 1024m
+            memory: 512Mi
+        storage:
+          storageClassName: local-path
+          resources:
+            requests:
+              storage: 4Gi
+    grafana:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 200Mi
+        limits:
+          cpu: 100m
+          memory: 400Mi
+      defaultDashboardsTimezone: Europe/Minsk
+      grafana.ini:
+        server:
+          domain: olymp.bsuir.by
+          root_url: "%(protocol)s://%(domain)s/i/grafana"
+          serve_from_sub_path: true
+        auth.github:
+          enabled: true
+          allow_sign_up: true
+          scopes: user:email,read:org
+          auth_url: https://github.com/login/oauth/authorize
+          token_url: https://github.com/login/oauth/access_token
+          api_url: https://api.github.com/user
+          allowed_organizations: fcsan-bsuir
+          client_id: Ov23lieTzgx1dPonnETx
+          client_secret: ${GITHUB_OAUTH_SECRET}
+          allow_assign_grafana_admin: true
+          role_attribute_path: >
+            contains(groups[*], '@fcsan-bsuir/devops') && 'Admin' || 
+            'Viewer'
+          skip_org_role_sync: false
+      envValueFrom:
+        GITHUB_OAUTH_SECRET:
+          secretKeyRef:
+            name: github-oauth
+            key: client_secret
+      vmScrape:
+        spec:
+          endpoints:
+            - port: '{{ .Values.grafana.service.portName }}'
+              path: "/i/grafana/metrics"
+      ingress:
+        enabled: true
+        path: /i/grafana
+        ingressClassName: nginx
+        annotations:
+          nginx.ingress.kubernetes.io/affinity: "cookie"
+        hosts:
+          - olymp.bsuir.by
+        tls:
+          - hosts:
+            - olymp.bsuir.by
+            secretName: bsuir-tls
+
+    alertmanager:
+      spec:
+        configSecret: vkms-alertmanager-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vmks-grafana-nginx
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "true"
+  annotations:
+    grafana_folder: NGINX
+data:
+  request-handling-performance.json.url: "https://raw.githubusercontent.com/kubernetes/ingress-nginx/refs/heads/main/deploy/grafana/dashboards/request-handling-performance.json"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vmks-grafana-cloud-native-pg
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "true"
+  annotations:
+    grafana_folder: Database
+data:
+  cloud-native-pg.json.url: "https://raw.githubusercontent.com/cloudnative-pg/grafana-dashboards/refs/heads/main/charts/cluster/grafana-dashboard.json"
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: apps
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: ./apps
+  prune: true
+  wait: true
+  timeout: 5m0s
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: infra-controllers
+  namespace: flux-system
+spec:
+  interval: 1h
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: ./infrastructure
+  prune: true
+  wait: true
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitlab
+  labels:
+    toolkit.fluxcd.io/tenant: sre
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: gitlab
+  namespace: gitlab
+spec:
+  interval: 24h
+  url: https://charts.gitlab.io
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: gitlab-runner
+  namespace: gitlab
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: gitlab-runner
+      version: "*"
+      sourceRef:
+        kind: HelmRepository
+        name: gitlab
+        namespace: gitlab
+      interval: 12h
+  values:
+    gitlabUrl: https://gitlab.com
+    rbac:
+      create: true
+      clusterWideAccess: false
+      rules:
+        - resources: ["configmaps", "pods", "pods/attach", "secrets", "services"]
+          verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
+        - apiGroups: [""]
+          resources: ["pods/exec"]
+          verbs: ["create", "patch", "delete"]
+    serviceAccount:
+      create: true
+    runners:
+      secret: gitlab-runner-secret
+      config: |
+        [[runners]]
+          [runners.kubernetes]
+            namespace = "{{.Release.Namespace}}"
+            image = "alpine"
+            image_pull_secrets = [ "mutex-gitlab-cr" ]
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mnt-placeholder
+  labels:
+    toolkit.fluxcd.io/tenant: studunion
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: mnt-placeholder
+  namespace: mnt-placeholder
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: mutex-app
+    namespace: common
+  values:
+    service:
+      ports:
+        - &exposed 8080
+      exposed: *exposed
+
+    deployment:
+      enabled: true
+      containers:
+        backend:
+          image: ghcr.io/fcsan-bsuir/mnt-placeholder:v1.1.1
+          # image: nginx:latest
+          # configMapPath: /usr/share/nginx/html
+    imagePullSecrets:
+      - name: fcsan-gh-cr
+
+    configMap:
+      enabled: false
+      index.html: |
+        <!DOCTYPE html>
+        <html lang="ru">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>&#9881;Техническое обслуживание</title>
+            <style>
+                body {
+                    font-family: sans-serif;
+                    text-align: center;
+                    margin: 0;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    min-height: 100vh;
+                    background-color: #f0f0f0;
+                }
+
+                .container {
+                    background-color: #fff;
+                    padding: 40px;
+                    border-radius: 10px;
+                    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+                }
+
+                h1 {
+                    font-size: 36px;
+                    margin-bottom: 20px;
+                    color: #333;
+                }
+
+                p {
+                    font-size: 18px;
+                    margin-bottom: 10px;
+                    color: #666;
+                }
+
+
+                a {
+                position: relative;
+                text-decoration: none;
+                color: #00583F;
+                }
+
+                a::before {
+                content: "";
+                position: absolute;
+                bottom: -2px;
+                left: 0;
+                width: 0;
+                height: 2px;
+                background-color: #00583F;
+                transition: width 0.3s ease-in-out;
+                }
+
+                a:hover::before {
+                width: 100%;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>Техническое обслуживание</h1>
+                <p>Сайт временно недоступен. Работы будут завершены в ближайшее время.</p>
+                <p>Хотите помочь нам сделать сайт еще лучше? <a href="mailto:fksis.studsovet@gmail.cim">Напишите нам!</a></p>
+            </div>
+        </body>
+        </html>
+
+    ingress:
+      enabled: true
+      className: "nginx"
+      hosts:
+        - host: olymp.bsuir.by
+          paths:
+            - path: /
+              pathType: ImplementationSpecific
+        # - host: solve.bsuir.by
+        #   paths:
+        #     - path: /
+        #       pathType: ImplementationSpecific
+        - host: bit-cup.bsuir.by
+          paths:
+            - path: /
+              pathType: ImplementationSpecific
+        # - host: acm.bsuir.by
+        #   paths:
+        #     - path: /
+        #       pathType: ImplementationSpecific
+      tls:
+        - hosts:
+          - olymp.bsuir.by
+          # - solve.bsuir.by
+          - bit-cup.bsuir.by
+          # - acm.bsuir.by
+          secretName: bsuir-tls
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cnpg-database
+  labels:
+    toolkit.fluxcd.io/tenant: sre
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: cnpg
+  namespace: cnpg-database
+spec:
+  interval: 24h
+  url: https://cloudnative-pg.github.io/charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: main-db
+  namespace: cnpg-database
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: cluster
+      version: "*"
+      sourceRef:
+        kind: HelmRepository
+        name: cnpg
+        namespace: cnpg-database
+      interval: 12h
+  values:
+    cluster:
+      instances: 2
+      priorityClassName: infra-critical
+      storage:
+        size: 1Gi
+        storageClass: local-path
+      affinity:
+        topologyKey: kubernetes.io/hostname
+      monitoring:
+        enabled: true
+        prometheusRule:
+          enabled: false
+      postgresql:
+        pg_hba:
+          - host all all all md5
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  labels:
+    app.kubernetes.io/instance: victoria-metrics
+  name: cnpg-ha-metrics
+  namespace: cnpg-database
+spec:
+  podMetricsEndpoints:
+    - port: metrics
+      scheme: http
+      scrapeTimeout: 120s
+      interval: 60s
+      relabelConfigs:
+        - target_label: job
+          replacement: cnpg-ha-metrics
+  selector:
+    matchLabels:
+     cnpg.io/cluster: main-db-cluster
+stages:
+  - lint
+  - test
+  - deploy
+
+.base-ansible:
+  image: registry.gitlab.com/mutualex/images/gitlab-ansible-runner:v1.3
+  tags:
+    - bsuir-local
+  variables:
+    ANSIBLE_CONFIG: ansible.cfg
+    ANSIBLE_INVENTORY: inventory/prod.yaml
+    SSH_PRIVATE_KEY: $GITLAB_SSH_PRIVATE_KEY
+    SSH_DEPLOY_KEY: $GITLAB_DEPLOY_SSH_KEY
+    VAULT_TOKEN: $GITLAB_VAULT_TOKEN
+    BOOTSTRAP_ROOT_PASSWORD: $GITLAB_BOOTSTRAP_ROOT_PASSWORD
+    LIMIT: all
+  before_script:
+    - mkdir -p ~/.ssh
+    - echo "${SSH_PRIVATE_KEY}" | base64 -d > ~/.ssh/id_rsa && chmod 0600 ~/.ssh/id_rsa
+    - echo "${SSH_DEPLOY_KEY}" | base64 -d > ~/.ssh/id_rsa.pub
+    - echo "${VAULT_TOKEN}" > .vault-password
+    - echo "${BOOTSTRAP_ROOT_PASSWORD}" > .bootstrap-root-password
+    - ansible --version
+    - ansible-lint --version
+
+.rules.lint:
+  rules:
+    - if: $CI_COMMIT_BRANCH
+      changes: &ansible_changes
+        paths:
+          - inventory/**/*
+          - playbooks/**/*
+          - roles/**/*
+          - .gitlab-ci.yml
+          - ansible.cfg
+          - .ansible-lint
+      when: always
+
+.rules.test:
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        <<: *ansible_changes
+      when: always
+
+.rules.apply:
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        <<: *ansible_changes
+      when: manual
+
+.parallel.playbooks:
+  parallel:
+    matrix:
+      - PLAYBOOK:
+          - base-node.yaml
+          - minio.yaml
+          # - openvpn-server.yaml
+          - k3s.yaml
+          - frpc.yaml
+
+
+.test-playbook:
+  extends: .base-ansible
+  allow_failure: true
+  script: |
+    ansible-playbook --vault-password-file .vault-password --check --diff playbooks/${PLAYBOOK} -l ${LIMIT}
+
+.deploy-playbook:
+  extends: .base-ansible
+  script:
+    ansible-playbook --vault-password-file .vault-password playbooks/${PLAYBOOK} -l ${LIMIT}
+
+lint-ansible:
+  extends:
+    - .rules.lint
+    - .base-ansible
+  stage: lint
+  script: ansible-lint
+
+test-playbooks:
+  extends:
+    - .rules.test
+    - .parallel.playbooks
+    - .test-playbook
+  stage: test
+
+deploy-playbooks:
+  extends:
+    - .rules.apply
+    - .parallel.playbooks
+    - .deploy-playbook
+  stage: deploy
+
+variables:
+  BOOTSTRAP_HOST:
+    value: ""
+    description: "FQDN or IP address"
+  BOOTSTRAP_USER:
+    value: "root"
+    description: "User, used for bootstrapping node"
+
+deploy-bootstrap:
+  when: manual
+  extends: .base-ansible
+  script:
+    ansible-playbook playbooks/bootstrap.yaml -i "${BOOTSTRAP_HOST}", --user "${BOOTSTRAP_USER}" --connection-password-file .bootstrap-root-password
+---
+- name: Install EPEL packages
+  ansible.builtin.dnf:
+    name:
+      - epel-release
+  become: true
+- name: Install base software
+  ansible.builtin.dnf:
+    name:
+      - vim
+      - net-tools
+      - traceroute
+      - tree
+      - htop
+      - git
+      - telnet
+      - tcpdump
+      - wget
+    state: present
+  become: true
+
+- name: Disable SELinux
+  ansible.posix.selinux:
+    state: disabled
+  become: true
+
+- name: Disable firewalld
+  ansible.builtin.systemd_service:
+    name: firewalld
+    state: stopped
+    enabled: false
+  become: true
+
+- name: Disable IPv6 with sysctl
+  ansible.posix.sysctl:
+    name: "{{ item }}"
+    value: "1"
+    state: present
+    reload: "yes"
+  become: true
+  with_items:
+    - net.ipv6.conf.all.disable_ipv6
+    - net.ipv6.conf.default.disable_ipv6
+    - net.ipv6.conf.lo.disable_ipv6
+
+- name: Create admin users
+  ansible.builtin.user:
+    name: "{{ item.username }}"
+    comment: "{{ item.fullname | default(item.username) }}"
+    groups: "{{ item.groups | default(['wheel']) }}"
+    append: true
+    shell: "{{ item.shell | default('/bin/bash') }}"
+    create_home: true
+    state: present
+  loop: "{{ base_node_admin_users | default([]) or [] }}"
+  become: true
+  no_log: true
+
+- name: Configure SSH authorized keys for admin users
+  ansible.posix.authorized_key:
+    user: "{{ item.0.username }}"
+    key: "{{ item.1 }}"
+    state: present
+  loop: "{{ (base_node_admin_users | default([]) or []) | subelements('ssh_keys') }}"
+  become: true
+  no_log: true
+
+- name: Configure sudoers for admin users
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/{{ item.username }}
+    content: "{{ item.username }} ALL=(ALL) {% if item.nopasswd | default(true) %}NOPASSWD: {% endif %}ALL"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+  loop: "{{ base_node_admin_users | default([]) or [] }}"
+  when: item.configure_sudo | default(true)
+  become: true
+  no_log: true
+
+- name: Create dynamic MOTD script
+  ansible.builtin.copy:
+    dest: /etc/profile.d/dynamic-motd.sh
+    content: |
+      #!/bin/bash
+
+      echo "$(cat /etc/redhat-release) (Kernel: $(uname -r))"
+
+      # System metrics
+      FREEMEM=$(free -m | awk 'NR==2{print $4}')
+      TOTALMEM=$(free -m | awk 'NR==2{print $2}')
+      MEMUSE=$((100-(FREEMEM*100/TOTALMEM)))
+
+      FREESPACE=$(df -h / | awk 'NR==2{print $4}')
+      TOTALSPACE=$(df -h / | awk 'NR==2{print $2}')
+      DISKUSE=$(df -h / | awk 'NR==2{print $5}')
+
+      LOAD=$(uptime | awk -F 'load average:' '{print $2}' | xargs)
+      UPTIME=$(uptime -p | sed 's/up //')
+      echo "Free RAM: $FREEMEM MB / Total RAM: $TOTALMEM MB"
+      echo "Memory Usage: $MEMUSE%"
+
+      IP=$(ip route get 1 | awk '{print $7;exit}')
+      echo "IP: $IP"
+
+      echo "Disk Usage: $FREESPACE free of $TOTALSPACE ($DISKUSE used)"
+      echo "Load Average: $LOAD"
+      echo "Uptime: $UPTIME"
+    mode: "0755"
+    owner: root
+    group: root
+  become: true
+---
+- name: Configure bootstrap
+  hosts: all
+  roles:
+    - bootstrap
+  vars:
+    ansible_ssh_key: "{{ lookup('env', 'SSH_DEPLOY_KEY') | b64decode }}"
+---
+- name: Cluster preparation
+  hosts: k8s
+  gather_facts: true
+  become: true
+  roles:
+    - role: prereq
+  vars: &k8s_vars
+    cluster_context: bsuir
+    extra_server_args: >-
+      --disable traefik
+      --disable servicelb
+      --flannel-backend=wireguard-native
+      --tls-san 'fksis-compute-01.bsuir.by,tunnel.gravity-production.by,olymp.bsuir.by'
+    k3s_version: "v1.31.1+k3s1"
+    api_endpoint: "{{ hostvars[groups['k8s_masters'][0]]['ansible_host'] | default(groups['k8s_masters'][0]) }}"
+    server_group: k8s_masters
+    agent_group: k8s_masters
+
+- name: Setup k3s server
+  hosts: k8s_masters
+  become: true
+  roles:
+    - role: k3s_server
+  vars:
+    <<: *k8s_vars
+
+- name: Setup k3s agent
+  hosts: k8s_agents
+  become: true
+  roles:
+    - role: k3s_agent
+  vars:
+    <<: *k8s_vars
+---
+- name: Install MinIO
+  hosts: minio
+  become: true
+  roles:
+    - minio
+# yamllint disable rule:line-length
+---
+- name: Configure base node
+  # ansible-lint: disable=yaml[line-length]
+  hosts: all
+  remote_user: ansible
+  roles:
+    - base_node
+  vars:
+    base_node_admin_users:
+      - username: fcsan
+        fullname: FCSaN service account
+        groups: [wheel, adm]
+        ssh_keys:
+          - "ssh-rsa masked one"
+        nopasswd: true
+---
+all:
+  children:
+    # vpn_servers:
+    #   hosts:
+    #     vpn_server_test:
+    #       ansible_host: 172.16.82.123
+    #       ansible_user: root
+    k8s:
+      children:
+        k8s_masters:
+          hosts:
+            fksis-compute-[01:03].bsuir.by:
+              ansible_user: fcsan
+    frpc:
+      hosts:
+        fksis-compute-01.bsuir.by:
+    minio:
+      hosts:
+        fksis-storage-01.bsuir.by:
+          ansible_user: ansible
+
+  vars:
+    ansible_python_interpreter: auto_silent
+    ansible_ssh_port: 22
+---
+- name: Enforce minimum Ansible version
+  ansible.builtin.assert:
+    that:
+      - ansible_version.full is version('2.14', '>=')
+    msg: "Minimum ansible-core version required is 2.14"
+
+- name: Install Dependent Ubuntu Packages
+  when: ansible_distribution in ['Ubuntu']
+  ansible.builtin.apt:
+    name: policycoreutils  # Used by install script to restore SELinux context
+    update_cache: true
+
+- name: Install NFS Client [RHEL]
+  when: ansible_distribution in ['AlmaLinux', 'RedHat']
+  ansible.builtin.package:
+    name: nfs-utils
+    state: present
+
+- name: Install NFS Client [Ubuntu]
+  when: ansible_distribution in ['Ubuntu']
+  ansible.builtin.package:
+    name: nfs-common
+    state: present
+
+- name: Enable IPv4 forwarding
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    state: present
+    reload: true
+
+- name: Enable IPv6 forwarding
+  ansible.posix.sysctl:
+    name: net.ipv6.conf.all.forwarding
+    value: "1"
+    state: present
+    reload: true
+  when: ansible_all_ipv6_addresses
+
+- name: Populate service facts
+  ansible.builtin.service_facts:
+
+- name: Allow UFW Exceptions
+  when:
+    - ansible_facts.services['ufw'] is defined
+    - ansible_facts.services['ufw'].state == 'running'
+  block:
+    - name: Get ufw status
+      ansible.builtin.command:
+        cmd: ufw status
+      changed_when: false
+      register: ufw_status
+
+    - name: If ufw enabled, open api port
+      when:
+        - ufw_status['stdout'] == "Status':' active"
+      community.general.ufw:
+        rule: allow
+        port: "{{ api_port }}"
+        proto: tcp
+
+    - name: If ufw enabled, open etcd ports
+      when:
+        - ufw_status['stdout'] == "Status':' active"
+        - groups[server_group] | length > 1
+      community.general.ufw:
+        rule: allow
+        port: "2379:2381"
+        proto: tcp
+
+    - name: If ufw enabled, allow default CIDRs
+      when:
+        - ufw_status['stdout'] == "Status':' active"
+      community.general.ufw:
+        rule: allow
+        src: '{{ item }}'
+      loop: "{{ (cluster_cidr + ',' + service_cidr) | split(',') }}"
+
+- name: Allow Firewalld Exceptions
+  when:
+    - ansible_facts.services['firewalld.service'] is defined
+    - ansible_facts.services['firewalld.service'].state == 'running'
+  block:
+    - name: If firewalld enabled, open api port
+      ansible.posix.firewalld:
+        port: "{{ api_port }}/tcp"
+        zone: internal
+        state: enabled
+        permanent: true
+        immediate: true
+
+    - name: If firewalld enabled, open etcd ports
+      when: groups[server_group] | length > 1
+      ansible.posix.firewalld:
+        port: "2379-2381/tcp"
+        zone: internal
+        state: enabled
+        permanent: true
+        immediate: true
+
+    - name: If firewalld enabled, open inter-node ports
+      ansible.posix.firewalld:
+        port: "{{ item }}"
+        zone: internal
+        state: enabled
+        permanent: true
+        immediate: true
+      with_items:
+        - 5001/tcp   # Spegel (Embedded distributed registry)
+        - 8472/udp   # Flannel VXLAN
+        - 10250/tcp  # Kubelet metrics
+        - 51820/udp  # Flannel Wireguard (IPv4)
+        - 51821/udp  # Flannel Wireguard (IPv6)
+
+    - name: If firewalld enabled, allow node CIDRs
+      ansible.posix.firewalld:
+        source: "{{ item }}"
+        zone: internal
+        state: enabled
+        permanent: true
+        immediate: true
+      loop: >-
+        {{
+          (
+            groups[server_group] | default([])
+            + groups[agent_group] | default([])
+          )
+          | map('extract', hostvars, ['ansible_default_ipv4', 'address'])
+          | flatten | unique | list
+        }}
+
+    - name: If firewalld enabled, allow default CIDRs
+      ansible.posix.firewalld:
+        source: "{{ item }}"
+        zone: trusted
+        state: enabled
+        permanent: true
+        immediate: true
+      loop: "{{ (cluster_cidr + ',' + service_cidr) | split(',') }}"
+
+- name: Add br_netfilter to /etc/modules-load.d/
+  ansible.builtin.copy:
+    content: "br_netfilter"
+    dest: /etc/modules-load.d/br_netfilter.conf
+    mode: "u=rw,g=,o="
+  when: (ansible_os_family == 'RedHat' or ansible_distribution == 'Archlinux')
+
+- name: Load br_netfilter
+  community.general.modprobe:
+    name: br_netfilter
+    state: present
+  when: (ansible_os_family == 'RedHat' or ansible_distribution == 'Archlinux')
+
+- name: Set bridge-nf-call-iptables (just to be sure)
+  ansible.posix.sysctl:
+    name: "{{ item }}"
+    value: "1"
+    state: present
+    reload: true
+  when: (ansible_os_family == 'RedHat' or ansible_distribution == 'Archlinux')
+  loop:
+    - net.bridge.bridge-nf-call-iptables
+    - net.bridge.bridge-nf-call-ip6tables
+
+- name: Check for Apparmor existence
+  ansible.builtin.stat:
+    path: /sys/module/apparmor/parameters/enabled
+  register: apparmor_enabled
+
+- name: Check if Apparmor is enabled
+  when: apparmor_enabled.stat.exists
+  ansible.builtin.command: cat /sys/module/apparmor/parameters/enabled
+  register: apparmor_status
+  changed_when: false
+
+- name: Install Apparmor Parser [Suse]
+  when:
+    - ansible_os_family == 'Suse'
+    - apparmor_status is defined
+    - apparmor_status.stdout == "Y"
+  ansible.builtin.package:
+    name: apparmor-parser
+    state: present
+
+- name: Install Apparmor Parser [Debian]
+  when:
+    - ansible_distribution == 'Debian'
+    - ansible_facts['distribution_major_version'] == "11"
+    - apparmor_status is defined
+    - apparmor_status.stdout == "Y"
+  ansible.builtin.package:
+    name: apparmor
+    state: present
+
+- name: Gather the package facts
+  ansible.builtin.package_facts:
+    manager: auto
+
+# Iptables v1.8.0-1.8.4 have a specific bug with K3s. https://github.com/k3s-io/k3s/issues/3117
+- name: If iptables v1.8.0-1.8.4, warn user  # noqa ignore-errors
+  when:
+    - ansible_facts.packages['iptables'] is defined
+    - ansible_facts.packages['iptables'][0]['version'] is version('1.8.5', '<')
+    - ansible_facts.packages['iptables'][0]['version'] is version('1.7.9', '>')
+  ansible.builtin.fail:
+    msg:
+      - "Warning: Iptables {{ ansible_facts.packages['iptables'][0]['version'] }} found."
+      - "Add '--prefer-bundled-bin' to extra_server_args variable to use the bundled iptables binary."
+  ignore_errors: true
+
+- name: Add /usr/local/bin to sudo secure_path
+  ansible.builtin.lineinfile:
+    line: 'Defaults    secure_path = /sbin:/bin:/usr/sbin:/usr/bin:/usr/local/bin'
+    regexp: "Defaults(\\s)*secure_path(\\s)*="
+    state: present
+    insertafter: EOF
+    path: /etc/sudoers
+    validate: 'visudo -cf %s'
+  when: ansible_os_family == 'RedHat'
+
+- name: Setup alternative K3s directory
+  when:
+    - k3s_server_location is defined
+    - k3s_server_location != "/var/lib/rancher/k3s"
+  block:
+    - name: Make rancher directory
+      ansible.builtin.file:
+        path: "/var/lib/rancher"
+        mode: "0755"
+        state: directory
+    - name: Create symlink
+      ansible.builtin.file:
+        dest: /var/lib/rancher/k3s
+        src: "{{ k3s_server_location }}"
+        force: true
+        state: link
+
+- name: Setup extra manifests
+  when: extra_manifests is defined
+  block:
+    - name: Make manifests directory
+      ansible.builtin.file:
+        path: "/var/lib/rancher/k3s/server/manifests"
+        mode: "0700"
+        state: directory
+    - name: Copy manifests
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: "/var/lib/rancher/k3s/server/manifests"
+        mode: "0600"
+      loop: "{{ extra_manifests }}"
+
+- name: Setup optional private registry configuration
+  when: registries_config_yaml is defined
+  block:
+    - name: Make k3s config directory
+      ansible.builtin.file:
+        path: "/etc/rancher/k3s"
+        mode: "0755"
+        state: directory
+    - name: Copy config values
+      ansible.builtin.copy:
+        content: "{{ registries_config_yaml }}"
+        dest: "/etc/rancher/k3s/registries.yaml"
+        mode: "0644"
+---
+- name: Make sure we have a 'wheel' group
+  ansible.builtin.group:
+    name: wheel
+    state: present
+
+- name: Allow 'wheel' group to have passwordless sudo
+  ansible.builtin.lineinfile:
+    dest: /etc/sudoers
+    state: present
+    regexp: ^%wheel
+    line: "%wheel ALL=(ALL) NOPASSWD: ALL"
+    validate: visudo -cf %s
+  become: true
+
+- name: Add ansible provision user
+  ansible.builtin.user:
+    name: ansible
+    group: wheel
+    state: present
+
+- name: Setup ssh public key for provision user
+  ansible.posix.authorized_key:
+    user: ansible
+    key: "{{ ansible_ssh_key }}"
+  become: true
+
+- name: Configure sshd
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regex: ^(#)?{{ item.key }}
+    line: "{{ item.key }} {{ item.value }}"
+    state: present
+  become: true
+  loop:
+    - { key: PermitRootLogin, value: "no" }
+    - { key: PasswordAuthentication, value: "no" }
+  notify:
+    - Restart sshd
+authentik:
+  error_reporting:
+    enabled: true
+  log_level: debug
+  secret_key: ${vault:secrets/data/k8s/prod/authentik#secret_key}
+  postgresql:
+    password: ${vault:secrets/data/k8s/prod/authentik#postgresql_password}
+  email:
+    host: "mail.gravity-production.by"
+    port: 587
+    username: ${vault:secrets/data/k8s/prod/authentik#email_username}
+    password: ${vault:secrets/data/k8s/prod/authentik#email_password}
+    use_tls: true
+    timeout: 30
+    from: "Mutex IdM <idm@gravity-production.by>"
+postgresql:
+  auth:
+    password: ${vault:secrets/data/k8s/prod/authentik#postgresql_password}
+  enabled: true
+redis:
+  enabled: true
+server:
+  replicas: 2
+  ingress:
+    annotations:
+      cert-manager.io/cluster-issuer: m3x-common-issuer
+      # traefik.ingress.kubernetes.io/router.entrypoints: websecure, web
+    enabled: true
+    hosts:
+    - idm.grvt.monster
+    - idm.prodigy.by
+    - idm.m3x.by
+    ingressClassName: nginx
+    tls:
+    - hosts:
+      - idm.grvt.monster
+      - idm.m3x.by
+      - idm.prodigy.by
+      secretName: idm-tls
+  volumeMounts:
+  - mountPath: /web/dist/custom.css
+    name: custom-css
+    subPath: custom.css
+  - mountPath: /authentik/enterprise/license.py
+    name: cracked-license
+    subPath: license.py
+  volumes:
+  - configMap:
+      name: authentik-custom-css
+    name: custom-css
+  - configMap:
+      name: authentik-cracked-license
+    name: cracked-license
+
+worker:
+  replicas: 2
+  volumeMounts:
+  - mountPath: /authentik/enterprise/license.py
+    name: cracked-license
+    subPath: license.py
+  volumes:
+  - configMap:
+      name: authentik-cracked-license
+    name: cracked-license
+global:
+  enabled: true
+
+server:
+  image:
+    repository: cr.yandex/yc/vault
+    tag: "1.16.2_yckms"
+  volumes:
+    - name: userconfig-yc-kms
+      secret:
+        secretName: vault-kms-creds
+  volumeMounts:
+    - mountPath: /vault/sa-config
+      name: userconfig-yc-kms
+      readOnly: true
+  standalone:
+    enabled: false
+  ha:
+    enabled: true
+    replicas: 2
+    raft:
+      enabled: true
+      setNodeId: true
+      config: |
+        ui = true
+
+        seal "yandexcloudkms" {
+          kms_key_id               = "abj1vrtun6e3iljbmgd7"
+          service_account_key_file = "/vault/sa-config/sa-key.json"
+        }
+
+        listener "tcp" {
+          address = "[::]:8200"
+          cluster_address = "[::]:8201"
+          tls_disable = 1
+        }
+        storage "raft" {
+          path = "/vault/data"
+          retry_join {
+            leader_api_addr = "http://vault-0.vault-internal:8200"
+          }
+          retry_join {
+            leader_api_addr = "http://vault-1.vault-internal:8200"
+          }
+          retry_join {
+            leader_api_addr = "http://vault-2.vault-internal:8200"
+          }
+        }
+
+        service_registration "kubernetes" {}
+  resources:
+    requests:
+      memory: 2Gi
+      cpu: 500m
+    limits:
+      memory: 4Gi
+      cpu: 1000m
+  ingress:
+    annotations:
+        cert-manager.io/cluster-issuer: m3x-common-issuer
+        # traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    enabled: true
+    hosts:
+      - host: vault.m3x.by
+    ingressClassName: nginx
+    tls:
+    - hosts:
+      - vault.m3x.by
+      secretName: vaut-m3x-tls
+
+ui:
+  enabled: true
+  # serviceType: "LoadBalancer"
+  # serviceNodePort: null
+  # externalPort: 8200
+
+injector:
+  enabled: true
+  image:
+    repository: docker.comcloud.xyz/hashicorp/vault-k8s
+  replicas: 1
+env:
+  VAULT_ADDR: "https://vault.m3x.by"
+  VAULT_ROLE: "vault-secrets-webhook"
+
+configMapMutation: true
+debug: true
+data:
+  name: "vaultwarden-data"
+  size: "2Gi"
+
+image:
+  tag: "1.32.1-alpine"
+
+ingress:
+  enabled: true
+  class: nginx
+  hostname: vw.m3x.by
+  tlsSecret: vaultwarden-tls-secret
+  additionalAnnotations:
+    cert-manager.io/cluster-issuer: m3x-common-issuer
+    # traefik.ingress.kubernetes.io/router.entrypoints: websecure
+
+signupsAllowed: true
+signupsVerify: true
+invitationOrgName: Mutex
+
+adminToken:
+  value: ${vault:secrets/data/k8s/prod/vaultwarden#admin_token}
+
+domain: https://vw.m3x.by
+
+smtp:
+  host: mail.gravity-production.by
+  port: 587
+  from: vaultwarden@gravity-production.by
+  fromName: "Vaultwarden Administrator"
+  username:
+    value: ${vault:secrets/data/k8s/prod/vaultwarden#smtp_username}
+  password:
+    value: ${vault:secrets/data/k8s/prod/vaultwarden#smtp_password}
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: m3x-common-issuer
+spec:
+  acme:
+    email: network@gravity-production.by
+    # server: https://acme-staging-v02.api.letsencrypt.org/directory
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: m3x-common-issuer-account-key
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cf-token-secret
+              key: api-token
+        selector:
+          dnsZones:
+          - 'm3x.by'
