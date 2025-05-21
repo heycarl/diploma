@@ -517,7 +517,7 @@ $> helm upgrade --install vaultwarden vaultwarden/vaultwarden -f infra/k8s/vault
 
 \subsubsection{Настройка \textit{Alertmanager}.} Конфигурация \textit{Alertmanager} включает шаблоны для уведомлений в \textit{Telegram}, использующие форматирование и эмодзи. Уведомления включают ссылку на интерфейс \textit{Grafana}.
 
-\subsubsection{Интеграция с системой оповещений \textit{FluxCD}.} Настроены три ресурса типа \textit{Alert}, обрабатывающие события от \textit{HelmRelease}, \textit{HelmRepository}, \textit{GitRepository} и \textit{Kustomization}. Уведомления отправляются в:
+\subsubsection{Интеграция с системой оповещений \textit{FluxCD}.} Настроены три ресурса типа \textit{Alert}, обрабатывающие события от \textit{HelmRelease}, \textit{HelmRepository}, \textit{GitRepository} и \textit{Kustomization}. Уведомления отправляются в различные сервисы сервисы:
 
 \begin{itemize}
     \item \textit{Telegram} -- для событий уровня \textit{info} и \textit{error};
