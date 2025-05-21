@@ -44,7 +44,7 @@
     \item[где] $ n $ -- количество исполнителей, занятых разработкой ПО;
     \item $ \text{K}_{\text{пр}} $ -- коэффициент, учитывающий процент премий;
     \item $ \text{З}_{\text{ч.}i} $ -- часовая заработная плата \textit{i}-го исполнителя, р.;
-    \item $ t_i $ -- трудоемкость работ, выполняемых i-м исполнителем, ч.
+    \item $ t_i $ -- трудоемкость работ, выполняемых \textit{i}-м исполнителем, ч.
 \end{explanationx}
 
 Размер месячной заработной платы исполнителя каждой категории соответствует сложившемуся на рынке труда размеру заработной платы для категорий работников, участвующих в разработке~\cite{programmersalaries}.
@@ -192,7 +192,7 @@
 \FPeval{\otherPaymentsTotal}{trunc(\commonMainSalaryWithBonus * \otherPaymentsNorm / 100, 2)}
 Норматив прочих затрат был принят равным 100\%. Размер прочих затрат составил:\\
 \begin{equation*}
-    \label{sec_economy:eq:other_payments}
+    \label{sec_economy:eq:other_payments_calc}
     \text{Р}_\text{пз} = \frac{\text{З}_\text{о} \times \text{Н}_\text{пз}}{100} = \frac{\commonMainSalaryWithBonus \times \otherPaymentsNorm}{100} = \otherPaymentsTotal \text{ р.}
 \end{equation*}
 
@@ -461,7 +461,7 @@ $ \Delta \text{З}_\text{тек}^\text{п.с} = \valDeltaZTek \text{ р.} $
 \FPeval{\valTargetRi}{round(\valTargetDeltaPCh / (\releaseCost * (1 + \valNdsPercent
   / 100)) * 100, 2)}
 
-По состоянию на март 2025 года, ставка налога на добавленную стоимость составляет $ \valNdsPercent \ \% $.
+По состоянию на март 2025 года, ставка налога на добавленную стоимость составляет $ \valNdsPercent \ \text{\%} $.
 
 Используя ранее найденные значения прироста чистой прибыли
 и цену программного средства, определим значение нормы прибыли
